@@ -32,7 +32,7 @@ public sealed class Dashboard : IDisposable
     {
         var timestamped = $"[{DateTime.Now:HH:mm:ss}] {message}";
         _recentLogs.Enqueue(timestamped);
-        while (_recentLogs.Count > 5)
+        while (_recentLogs.Count > 3)
         {
             _recentLogs.TryDequeue(out _);
         }
@@ -42,6 +42,7 @@ public sealed class Dashboard : IDisposable
     {
         try
         {
+            Console.Clear();
             Console.CursorVisible = false;
         }
         catch
@@ -54,7 +55,7 @@ public sealed class Dashboard : IDisposable
 
     private async Task RenderLoopAsync()
     {
-        var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(33)); // ~30 fps UI tick
+        var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(66)); // ~15 fps clean UI tick
 
         try
         {
@@ -81,71 +82,81 @@ public sealed class Dashboard : IDisposable
         }
         else if (total > 0)
         {
-            connectionStatusStr = "PHONE DISCONNECTED (WATCHDOG NEUTRAL ENGAGED)";
+            connectionStatusStr = "PHONE DISCONNECTED (SAFEGUARD ENGAGED)";
         }
         else
         {
             connectionStatusStr = "WAITING FOR PHONE";
         }
 
-        var sb = new StringBuilder();
-
-        sb.AppendLine("==================================================================");
-        sb.AppendLine("                   PHONE RACING WHEEL BRIDGE                      ");
-        sb.AppendLine("==================================================================");
-        sb.AppendLine();
-        sb.AppendLine($"Connection:      {connectionStatusStr}");
-        sb.AppendLine($"Transport:       Wi-Fi UDP (Port {_listenPort})");
-        sb.AppendLine($"Phone IP:        {phoneIp}");
-        sb.AppendLine($"Packets/sec:     {pps,5:F1}");
-        sb.AppendLine($"Last Sequence:   {lastSeq}");
-        sb.AppendLine($"Invalid Packets: {invalid}");
-        sb.AppendLine($"Stale Packets:   {stale} (Dropped: {dropped})");
-        sb.AppendLine($"Latency:         {(latency > 0 ? $"{latency:F0} ms" : "n/a")}");
-        sb.AppendLine();
-        sb.AppendLine("-------------------------- CONTROLLER ----------------------------");
-        sb.AppendLine();
+        var lines = new List<string>(20);
+        lines.Add("==================================================================");
+        lines.Add("                   PHONE RACING WHEEL BRIDGE                      ");
+        lines.Add("==================================================================");
+        lines.Add($"Connection:      {connectionStatusStr}");
+        lines.Add($"Transport:       Wi-Fi UDP (Port {_listenPort})");
+        lines.Add($"Phone IP:        {phoneIp}");
+        lines.Add($"Packets/sec:     {pps,5:F1}  |  Last Seq: {lastSeq}  |  Latency: {(latency > 0 ? $"{latency:F0} ms" : "n/a")}");
+        lines.Add($"Stale Packets:   {stale} (Dropped: {dropped})  |  Invalid: {invalid}");
+        lines.Add("-------------------------- CONTROLLER ----------------------------");
 
         // Steering
         var steerPct = (int)Math.Round(steering * 100);
         var steerBar = BuildSteeringBar(steering);
-        sb.AppendLine($"Steering:   {steerPct,4}%  {steerBar}");
+        lines.Add($"Steering:   {steerPct,4}%  {steerBar}");
 
         // Throttle
         var thrtlPct = (int)Math.Round(throttle * 100);
         var thrtlBar = BuildProgressBar(throttle, 24);
-        sb.AppendLine($"Throttle:   {thrtlPct,4}%  {thrtlBar}");
+        lines.Add($"Throttle:   {thrtlPct,4}%  {thrtlBar}");
 
         // Brake
         var brakePct = (int)Math.Round(brake * 100);
         var brakeBar = BuildProgressBar(brake, 24);
-        sb.AppendLine($"Brake:      {brakePct,4}%  {brakeBar}");
-        sb.AppendLine();
+        lines.Add($"Brake:      {brakePct,4}%  {brakeBar}");
 
         // Buttons
-        sb.AppendLine($"Handbrake:  {(handbrake ? "[ ON  ]" : "[ OFF ]")}");
-        sb.AppendLine($"Gear Up:    {(gearUp ? "[ ON  ]" : "[ OFF ]")}");
-        sb.AppendLine($"Gear Down:  {(gearDown ? "[ ON  ]" : "[ OFF ]")}");
-        sb.AppendLine();
+        lines.Add($"Buttons:    HB: {(handbrake ? "[ ON ]" : "[ OFF]")}  |  UP: {(gearUp ? "[ ON ]" : "[ OFF]")}  |  DOWN: {(gearDown ? "[ ON ]" : "[ OFF]")}");
+        lines.Add("----------------------- EVENT LOGS & STATUS ----------------------");
 
-        sb.AppendLine("----------------------- EVENT LOGS & STATUS ----------------------");
         foreach (var log in _recentLogs)
         {
-            sb.AppendLine($"  {log}");
+            lines.Add($"  {log}");
         }
 
         if (_recentLogs.IsEmpty)
         {
-            sb.AppendLine($"  [INFO] Listening on port {_listenPort}. Ready for phone on Wi-Fi or Hotspot.");
+            lines.Add($"  [INFO] Listening on port {_listenPort}. Ready for phone.");
         }
 
-        sb.AppendLine();
-        sb.AppendLine("Press [Ctrl+C] to exit. Target game: Forza (Windows PC)");
+        lines.Add("==================================================================");
+        lines.Add("Press [Ctrl+C] to exit. Target game: Forza (Windows PC)");
 
         try
         {
-            Console.SetCursorPosition(0, 0);
-            Console.Write(sb.ToString());
+            int windowWidth = 66;
+            int windowHeight = 24;
+            try
+            {
+                windowWidth = Math.Max(66, Math.Min(Console.WindowWidth, 80));
+                windowHeight = Console.WindowHeight;
+            }
+            catch
+            {
+                // Headless/redirected
+            }
+
+            for (int i = 0; i < lines.Count && i < windowHeight; i++)
+            {
+                Console.SetCursorPosition(0, i);
+                var text = lines[i];
+                if (text.Length > windowWidth)
+                {
+                    text = text[..windowWidth];
+                }
+                // Pad to line width to wipe any previous characters on that line
+                Console.Write(text.PadRight(windowWidth));
+            }
         }
         catch
         {

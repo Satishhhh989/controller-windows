@@ -70,45 +70,50 @@ public sealed class DeviceDiscovery : IDisposable
     }
 
     /// <summary>
-    /// Determines the local IPv4 address of the active network adapter
-    /// (works seamlessly on standard Wi-Fi routers and Android phone hotspots, 100% offline).
+    /// Determines the local IPv4 address of the physical Wi-Fi or Ethernet adapter,
+    /// explicitly filtering out virtual switches (WSL, Hyper-V, VirtualBox, VMware).
     /// </summary>
     public static string GetBestLocalIpAddress()
     {
         try
         {
-            // 1. Fast probe: UDP routing table lookup (no packets are sent over the wire)
-            using var socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, 0);
-            socket.Connect("8.8.8.8", 65530);
-            if (socket.LocalEndPoint is IPEndPoint endPoint && !IPAddress.IsLoopback(endPoint.Address))
+            var interfaces = System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces();
+
+            // 1. Search physical Wi-Fi adapters first
+            foreach (var ni in interfaces)
             {
-                return endPoint.Address.ToString();
-            }
-        }
-        catch
-        {
-            // Expected when offline or connected to an isolated phone hotspot
-        }
+                if (ni.OperationalStatus != System.Net.NetworkInformation.OperationalStatus.Up) continue;
+                if (IsVirtualAdapter(ni)) continue;
 
-        try
-        {
-            // 2. Safe local adapter enumeration (works 100% offline, zero DNS queries)
-            foreach (var ni in System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces())
-            {
-                if (ni.OperationalStatus != System.Net.NetworkInformation.OperationalStatus.Up)
-                    continue;
-
-                if (ni.NetworkInterfaceType == System.Net.NetworkInformation.NetworkInterfaceType.Loopback)
-                    continue;
-
-                var ipProps = ni.GetIPProperties();
-                foreach (var addr in ipProps.UnicastAddresses)
+                if (ni.NetworkInterfaceType == System.Net.NetworkInformation.NetworkInterfaceType.Wireless80211)
                 {
-                    if (addr.Address.AddressFamily == AddressFamily.InterNetwork && !IPAddress.IsLoopback(addr.Address))
-                    {
-                        return addr.Address.ToString();
-                    }
+                    var ip = GetIpv4FromInterface(ni);
+                    if (!string.IsNullOrEmpty(ip)) return ip;
                 }
+            }
+
+            // 2. Search physical Ethernet adapters
+            foreach (var ni in interfaces)
+            {
+                if (ni.OperationalStatus != System.Net.NetworkInformation.OperationalStatus.Up) continue;
+                if (IsVirtualAdapter(ni)) continue;
+
+                if (ni.NetworkInterfaceType == System.Net.NetworkInformation.NetworkInterfaceType.Ethernet)
+                {
+                    var ip = GetIpv4FromInterface(ni);
+                    if (!string.IsNullOrEmpty(ip)) return ip;
+                }
+            }
+
+            // 3. Fallback: Any non-virtual, non-loopback active interface
+            foreach (var ni in interfaces)
+            {
+                if (ni.OperationalStatus != System.Net.NetworkInformation.OperationalStatus.Up) continue;
+                if (ni.NetworkInterfaceType == System.Net.NetworkInformation.NetworkInterfaceType.Loopback) continue;
+                if (IsVirtualAdapter(ni)) continue;
+
+                var ip = GetIpv4FromInterface(ni);
+                if (!string.IsNullOrEmpty(ip)) return ip;
             }
         }
         catch
@@ -117,6 +122,51 @@ public sealed class DeviceDiscovery : IDisposable
         }
 
         return "127.0.0.1";
+    }
+
+    public static List<(string Name, string Ip)> GetAllLocalIpv4Addresses()
+    {
+        var list = new List<(string Name, string Ip)>();
+        try
+        {
+            foreach (var ni in System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces())
+            {
+                if (ni.OperationalStatus != System.Net.NetworkInformation.OperationalStatus.Up) continue;
+                if (ni.NetworkInterfaceType == System.Net.NetworkInformation.NetworkInterfaceType.Loopback) continue;
+                if (IsVirtualAdapter(ni)) continue;
+
+                var ip = GetIpv4FromInterface(ni);
+                if (!string.IsNullOrEmpty(ip))
+                {
+                    list.Add((ni.Name, ip));
+                }
+            }
+        }
+        catch { }
+        return list;
+    }
+
+    private static bool IsVirtualAdapter(System.Net.NetworkInformation.NetworkInterface ni)
+    {
+        var name = ni.Name.ToLowerInvariant();
+        var desc = ni.Description.ToLowerInvariant();
+        return name.Contains("vethernet") || name.Contains("wsl") || name.Contains("virtual") ||
+               name.Contains("vmware") || name.Contains("hyper-v") ||
+               desc.Contains("virtual") || desc.Contains("hyper-v") || desc.Contains("wsl") ||
+               desc.Contains("vmware");
+    }
+
+    private static string? GetIpv4FromInterface(System.Net.NetworkInformation.NetworkInterface ni)
+    {
+        var ipProps = ni.GetIPProperties();
+        foreach (var addr in ipProps.UnicastAddresses)
+        {
+            if (addr.Address.AddressFamily == AddressFamily.InterNetwork && !IPAddress.IsLoopback(addr.Address))
+            {
+                return addr.Address.ToString();
+            }
+        }
+        return null;
     }
 
     public void Dispose()

@@ -64,9 +64,19 @@ public static class Program
         };
 
         // Start all bridge services
-        dashboard.AddLog($"[INFO] Starting Phone Racing Wheel Bridge on port {port}");
-        dashboard.AddLog($"[INFO] Safety watchdog timeout: {watchdogTimeoutMs} ms");
-        dashboard.AddLog($"[INFO] Local IP: {DeviceDiscovery.GetBestLocalIpAddress()}");
+        dashboard.AddLog($"[INFO] Starting Bridge on UDP port {port}");
+        var allIps = DeviceDiscovery.GetAllLocalIpv4Addresses();
+        if (allIps.Count > 0)
+        {
+            foreach (var (name, ip) in allIps)
+            {
+                dashboard.AddLog($"[INFO] IP ({name}): {ip}");
+            }
+        }
+        else
+        {
+            dashboard.AddLog($"[INFO] Local IP: {DeviceDiscovery.GetBestLocalIpAddress()}");
+        }
 
         watchdog.Start();
         udpServer.Start();
