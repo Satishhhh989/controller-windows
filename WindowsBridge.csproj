@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>WindowsBridge</RootNamespace>
+    <AssemblyName>WindowsBridge</AssemblyName>
+    <Description>Windows Bridge Companion Application for Phone Racing Wheel</Description>
+    <Version>1.0.0</Version>
+
+    <!-- Publishing optimizations for standalone Windows deployment -->
+    <PublishSingleFile Condition="'$(PublishSingleFile)' == 'true'">true</PublishSingleFile>
+    <SelfContained Condition="'$(SelfContained)' == 'true'">true</SelfContained>
+    <IncludeNativeLibrariesForSelfExtract Condition="'$(PublishSingleFile)' == 'true'">true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+  </PropertyGroup>
+
+</Project>
