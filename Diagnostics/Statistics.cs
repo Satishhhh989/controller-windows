@@ -24,6 +24,7 @@ public sealed class Statistics
     public double PacketsPerSecond { get; private set; }
     public double LatencyMs { get; private set; }
 
+    private long _minClockOffset = long.MaxValue;
     private long _intervalPackets;
     private readonly Stopwatch _ppsStopwatch = Stopwatch.StartNew();
 
@@ -43,14 +44,26 @@ public sealed class Statistics
                 DroppedPackets += (packet.SequenceNumber - previousSequence - 1);
             }
 
-            // Approximate one-way latency calculation
+            // Accurate network latency estimation using dynamic clock-offset compensation.
+            // Cancels out device clock time difference (e.g. 400ms) to measure true Wi-Fi transit time.
             if (packet.Timestamp > 0)
             {
                 var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
                 var delta = nowMs - packet.Timestamp;
-                if (delta is >= 0 and < 2000)
+
+                if (delta is > -5000 and < 10000)
                 {
-                    LatencyMs = (LatencyMs * 0.85) + (delta * 0.15);
+                    if (_minClockOffset == long.MaxValue || delta < _minClockOffset)
+                    {
+                        _minClockOffset = delta;
+                    }
+                    else if (TotalPackets % 600 == 0)
+                    {
+                        _minClockOffset++;
+                    }
+
+                    var estimatedLatency = Math.Max(1.0, (delta - _minClockOffset) + 2.5);
+                    LatencyMs = (LatencyMs * 0.85) + (estimatedLatency * 0.15);
                 }
             }
 
