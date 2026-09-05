@@ -18,6 +18,7 @@ public sealed class UdpServer : IDisposable
     private readonly int _port;
     private readonly ControllerState _controllerState;
     private readonly Statistics _statistics;
+    private readonly VirtualController.VirtualGamepad? _virtualGamepad;
     private readonly Action<string>? _logAction;
     private readonly CancellationTokenSource _cts = new();
 
@@ -30,11 +31,13 @@ public sealed class UdpServer : IDisposable
         int port,
         ControllerState controllerState,
         Statistics statistics,
+        VirtualController.VirtualGamepad? virtualGamepad = null,
         Action<string>? logAction = null)
     {
         _port = port;
         _controllerState = controllerState;
         _statistics = statistics;
+        _virtualGamepad = virtualGamepad;
         _logAction = logAction;
     }
 
@@ -109,10 +112,11 @@ public sealed class UdpServer : IDisposable
             _logAction?.Invoke($"[INFO] Phone connected: {senderIpStr} (Seq #{packet!.SequenceNumber})");
         }
 
-        // Record metrics and update controller state
+        // Record metrics, update controller state, and drive virtual gamepad
         _statistics.RecordValidPacket(packet!, senderEndPoint, _lastValidSequence);
         _lastValidSequence = packet!.SequenceNumber;
         _controllerState.UpdateFromPacket(packet!);
+        _virtualGamepad?.Update(packet!);
     }
 
     public void Dispose()

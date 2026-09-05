@@ -17,15 +17,21 @@ public sealed class Dashboard : IDisposable
     private readonly ControllerState _state;
     private readonly Statistics _statistics;
     private readonly int _listenPort;
+    private readonly VirtualController.VirtualGamepad? _virtualGamepad;
     private readonly ConcurrentQueue<string> _recentLogs = new();
     private readonly CancellationTokenSource _cts = new();
     private Task? _renderTask;
 
-    public Dashboard(ControllerState state, Statistics statistics, int listenPort)
+    public Dashboard(
+        ControllerState state,
+        Statistics statistics,
+        int listenPort,
+        VirtualController.VirtualGamepad? virtualGamepad = null)
     {
         _state = state;
         _statistics = statistics;
         _listenPort = listenPort;
+        _virtualGamepad = virtualGamepad;
     }
 
     public void AddLog(string message)
@@ -95,6 +101,7 @@ public sealed class Dashboard : IDisposable
         lines.Add("==================================================================");
         lines.Add($"Connection:      {connectionStatusStr}");
         lines.Add($"Transport:       Wi-Fi UDP (Port {_listenPort})");
+        lines.Add($"Virtual Gamepad: {_virtualGamepad?.StatusMessage ?? "DISABLED"}");
         lines.Add($"Phone IP:        {phoneIp}");
         lines.Add($"Packets/sec:     {pps,5:F1}  |  Last Seq: {lastSeq}  |  Latency: {(latency > 0 ? $"{latency:F0} ms" : "n/a")}");
         lines.Add($"Stale Packets:   {stale} (Dropped: {dropped})  |  Invalid: {invalid}");

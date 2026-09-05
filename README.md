@@ -7,27 +7,28 @@ Native C# / .NET 8 companion application for Windows that receives real-time UDP
 ## 🏎️ Overview & Architecture
 
 ```
-📱 Android Phone (Controller)
+📱 Android Phone (Racing Wheel Controller)
       │
       │  Local Wi-Fi or Phone Hotspot (UDP on Port 5000 @ ~60 Hz)
       ▼
-💻 Windows Gaming Laptop (This Application)
+💻 Windows Gaming Laptop (Windows Bridge)
       │
       ├── UdpServer (Reused socket, sequence validation, stale packet filter)
+      ├── VirtualGamepad (ViGEmBus Xbox 360 emulation - 0 driver lag)
       ├── ConnectionWatchdog (200ms safety timeout -> neutral safeguard)
       ├── Statistics (PPS, packet drops, latency, phone IP)
       ├── DeviceDiscovery (1 Hz UDP announcement on port 5152)
-      └── Dashboard (Low-CPU live telemetry HUD)
+      └── Dashboard (Low-CPU flicker-free HUD with live gauges)
       │
-      ▼ (Next Phase)
-🎮 Virtual Controller (ViGEmBus / XInput)
+      ▼ (Native Windows OS Virtual Device)
+🎮 Controller (XBOX 360 For Windows)
       │
-      ▼ (Next Phase)
-🏁 Forza Motorsport / Horizon
+      ▼ (Plug & Play - Zero Config)
+🏎️ Forza Horizon / Motorsport
 ```
 
 > [!NOTE]
-> **No Mac dependency at runtime**: Your Mac is strictly your code development machine. Once the phone app is installed and this `WindowsBridge` folder is on your Windows laptop, the complete controller system runs entirely between your Android phone and Windows laptop.
+> **No Mac dependency at runtime**: Your Mac is strictly your code development machine. The complete controller system runs entirely between your Android phone and Windows laptop.
 
 ---
 
@@ -36,8 +37,11 @@ Native C# / .NET 8 companion application for Windows that receives real-time UDP
 ```
 WindowsBridge/
 ├── WindowsBridge.sln               # Visual Studio solution
-├── WindowsBridge.csproj            # .NET 8 project (zero external dependencies)
+├── WindowsBridge.csproj            # .NET 8 project (Nefarius.ViGEm.Client)
 ├── Program.cs                      # Application entrypoint & service coordinator
+│
+├── VirtualController/
+│   └── VirtualGamepad.cs           # ViGEmBus Xbox 360 controller emulation
 │
 ├── Networking/
 │   ├── UdpServer.cs                # Asynchronous UDP socket listener & packet validator
@@ -59,11 +63,12 @@ WindowsBridge/
 │   └── Dashboard.cs                # Lightweight, flicker-free terminal dashboard
 │
 ├── scripts/
-│   ├── run.bat                     # One-click execution script (dotnet run)
+│   ├── install_vigem_driver.bat    # 1-click installer for ViGEmBus runtime driver
+│   ├── run.bat                     # One-click execution script (dotnet run or .exe)
 │   ├── build_self_contained.bat    # Builds single-file standalone Windows x64 executable
 │   └── allow_firewall.bat          # Configures Windows Firewall for UDP ports 5000 & 5152
 │
-└── README.md                       # This comprehensive documentation
+└── README.md                       # Comprehensive Windows & Forza setup guide
 ```
 
 ---
@@ -201,6 +206,41 @@ You can now run either:
 5. Launch the **Phone Racing Wheel** app on the phone.
 6. Tap **NET**, enter the laptop's IP address (from step 3), port `5000`, and tap **CONNECT**.
 7. Observe live telemetry updating smoothly at ~60 pps directly between the phone and laptop with zero internet or router required!
+
+---
+
+## 🏎️ Forza Horizon Setup & Gameplay
+
+Once your phone is streaming to the Windows Bridge at ~60 pps, follow these steps to use it as your physical racing wheel in **Forza Horizon (Standard Edition)**:
+
+### Step 1: Install the ViGEmBus Driver (One-Time)
+1. Open the `scripts\` folder on your Windows laptop.
+2. Right-click **`install_vigem_driver.bat`** and select **"Run as administrator"**.
+3. Follow the quick setup wizard prompts to install the official virtual gamepad driver.
+4. When `WindowsBridge.exe` starts, verify the dashboard displays:
+   `Virtual Gamepad: XBOX 360 (ACTIVE)`
+
+### Step 2: Test the Virtual Gamepad in Windows (`joy.cpl`)
+1. On your Windows laptop, press `Win + R`.
+2. Type `joy.cpl` and press Enter (opens **Game Controllers**).
+3. You will see: **`Controller (XBOX 360 For Windows)`** listed with status `OK`!
+4. Click **Properties**:
+   - Tilt your phone left/right $\rightarrow$ the X-axis indicator moves left/right.
+   - Tilt your phone forward $\rightarrow$ the Z-axis (Right Trigger / Throttle) pulls.
+   - Press Brake on the phone $\rightarrow$ the Left Trigger pulls.
+   - Tap Handbrake $\rightarrow$ Button 1 (A) lights up.
+   - Tap Gear Up $\rightarrow$ Button 6 (RB) lights up.
+   - Tap Gear Down $\rightarrow$ Button 5 (LB) lights up.
+
+### Step 3: Launch Forza Horizon
+1. Launch **Forza Horizon**.
+2. Forza will automatically detect the **Xbox 360 Controller** natively!
+3. Head into **Free Roam** or any race:
+   - **Steer**: Turn your phone like a real steering wheel.
+   - **Accelerate**: Tilt forward smoothly for precision throttle control.
+   - **Brake**: Touch the on-screen Brake button for progressive stopping power.
+   - **Handbrake**: Tap Handbrake into tight hairpins for smooth drifts.
+   - **Shifting**: Tap Gear Up / Down for manual transmission.
 
 ---
 

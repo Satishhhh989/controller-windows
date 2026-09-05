@@ -6,6 +6,7 @@ using WindowsBridge.Diagnostics;
 using WindowsBridge.Networking;
 using WindowsBridge.Safety;
 using WindowsBridge.UI;
+using WindowsBridge.VirtualController;
 
 namespace WindowsBridge;
 
@@ -31,7 +32,8 @@ public static class Program
 
         var state = new ControllerState();
         var statistics = new Statistics();
-        using var dashboard = new Dashboard(state, statistics, port);
+        using var virtualGamepad = new VirtualGamepad();
+        using var dashboard = new Dashboard(state, statistics, port, virtualGamepad);
 
         using var watchdog = new ConnectionWatchdog(
             state,
@@ -44,7 +46,8 @@ public static class Program
                 }
                 else
                 {
-                    dashboard.AddLog("[WARN] Phone disconnected — neutral watchdog safeguard engaged");
+                    virtualGamepad.ResetToNeutral();
+                    dashboard.AddLog("[WARN] Phone disconnected — neutral safeguard engaged");
                 }
             });
 
@@ -52,6 +55,7 @@ public static class Program
             port,
             state,
             statistics,
+            virtualGamepad: virtualGamepad,
             logAction: msg => dashboard.AddLog(msg));
 
         using var discovery = new DeviceDiscovery(port);
@@ -77,6 +81,9 @@ public static class Program
         {
             dashboard.AddLog($"[INFO] Local IP: {DeviceDiscovery.GetBestLocalIpAddress()}");
         }
+
+        // Initialize virtual gamepad (ViGEmBus)
+        virtualGamepad.Initialize(msg => dashboard.AddLog(msg));
 
         watchdog.Start();
         udpServer.Start();
