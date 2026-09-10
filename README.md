@@ -1,270 +1,351 @@
-# Phone Racing Wheel — Windows Bridge
+# Phone Racing Wheel - Windows Bridge
 
-Native C# / .NET 8 companion application for Windows that receives real-time UDP controller telemetry from the Android phone racing wheel over local Wi-Fi or Phone Hotspot.
-
----
-
-## 🏎️ Overview & Architecture
-
-```
-📱 Android Phone (Racing Wheel Controller)
-      │
-      │  Local Wi-Fi or Phone Hotspot (UDP on Port 5000 @ ~60 Hz)
-      ▼
-💻 Windows Gaming Laptop (Windows Bridge)
-      │
-      ├── UdpServer (Reused socket, sequence validation, stale packet filter)
-      ├── VirtualGamepad (ViGEmBus Xbox 360 emulation - 0 driver lag)
-      ├── ConnectionWatchdog (200ms safety timeout -> neutral safeguard)
-      ├── Statistics (PPS, packet drops, latency, phone IP)
-      ├── DeviceDiscovery (1 Hz UDP announcement on port 5152)
-      └── Dashboard (Low-CPU flicker-free HUD with live gauges)
-      │
-      ▼ (Native Windows OS Virtual Device)
-🎮 Controller (XBOX 360 For Windows)
-      │
-      ▼ (Plug & Play - Zero Config)
-🏎️ Forza Horizon / Motorsport
-```
-
-> [!NOTE]
-> **No Mac dependency at runtime**: Your Mac is strictly your code development machine. The complete controller system runs entirely between your Android phone and Windows laptop.
+High-performance native C# / .NET 8 companion application for Windows that receives real-time UDP controller telemetry from the mobile racing wheel over local Wi-Fi or phone hotspot, emulating a native virtual Xbox 360 controller via the ViGEmBus kernel driver.
 
 ---
 
-## 📁 Project Structure
+## Architecture Overview
+
+```
++-------------------------------------------------------+
+|        Mobile Phone (Racing Wheel Controller)        |
+|  - Gyroscope & Accelerometer sensor fusion            |
+|  - Progressive brake pedal & analog throttle slider   |
+|  - Paddle shifters & handbrake                        |
++-------------------------------------------------------+
+                           |
+                           | UDP Datagrams (Port 5000 @ ~60-100 Hz)
+                           | Local Wi-Fi or Direct Phone Hotspot
+                           v
++-------------------------------------------------------+
+|         Windows PC (Windows Bridge Service)           |
+|                                                       |
+|  [UdpServer]                                          |
+|   - Reused asynchronous socket listener               |
+|   - Monotonic sequence validation & stale drop        |
+|                                                       |
+|  [Protocol Engine]                                    |
+|   - High-throughput JSON parser                       |
+|   - 24-byte zero-allocation binary decoder            |
+|                                                       |
+|  [Connection Watchdog]                                |
+|   - 25 ms evaluation interval                         |
+|   - 200 ms timeout fail-safe -> neutral controls      |
+|                                                       |
+|  [VirtualGamepad Adapter]                             |
+|   - Nefarius ViGEm.Client Xbox 360 controller target  |
+|   - Direct kernel driver interface (sub-millisecond)  |
+|                                                       |
+|  [Network Discovery & Telemetry]                      |
+|   - 1 Hz UDP announcement beacon on port 5152         |
+|   - Real-time rolling statistics (PPS, Jitter, Drops) |
+|   - Clock offset compensated true network latency     |
+|                                                       |
+|  [Console Dashboard]                                  |
+|   - Zero-flicker ANSI terminal HUD with visual gauges |
++-------------------------------------------------------+
+                           |
+                           | Native Windows Virtual Hardware Bus
+                           v
++-------------------------------------------------------+
+|       Virtual Xbox 360 Controller (XInput)            |
+|  - Left Thumbstick X : Steering [-32767, 32767]       |
+|  - Right Trigger     : Throttle [0, 255]              |
+|  - Left Trigger      : Brake    [0, 255]              |
+|  - Button A          : Handbrake                      |
+|  - Right Bumper (RB) : Gear Up                        |
+|  - Left Bumper  (LB) : Gear Down                      |
++-------------------------------------------------------+
+                           |
+                           | Standard DirectInput / XInput
+                           v
++-------------------------------------------------------+
+|             Racing Games & Simulators                 |
+|  Forza Horizon 4 / 5, Forza Motorsport, F1 23 / 24,   |
+|  Assetto Corsa, Project CARS, Need for Speed          |
++-------------------------------------------------------+
+```
+
+---
+
+## Directory Structure
 
 ```
 WindowsBridge/
-├── WindowsBridge.sln               # Visual Studio solution
-├── WindowsBridge.csproj            # .NET 8 project (Nefarius.ViGEm.Client)
-├── Program.cs                      # Application entrypoint & service coordinator
-│
-├── VirtualController/
-│   └── VirtualGamepad.cs           # ViGEmBus Xbox 360 controller emulation
-│
-├── Networking/
-│   ├── UdpServer.cs                # Asynchronous UDP socket listener & packet validator
-│   └── DeviceDiscovery.cs          # Local network beacon broadcaster on port 5152
-│
-├── Protocol/
-│   └── ControllerPacket.cs         # JSON and 24-byte compact binary decoder & validator
-│
-├── Controller/
-│   └── ControllerState.cs          # Thread-safe atomic controller state with safe neutral reset
-│
-├── Safety/
-│   └── ConnectionWatchdog.cs       # 200 ms timeout safety monitor (snaps inputs to neutral)
-│
-├── Diagnostics/
-│   └── Statistics.cs               # Throughput (PPS), latency, phone IP, and sequence gap tracking
-│
-├── UI/
-│   └── Dashboard.cs                # Lightweight, flicker-free terminal dashboard
-│
-├── scripts/
-│   ├── install_vigem_driver.bat    # 1-click installer for ViGEmBus runtime driver
-│   ├── run.bat                     # One-click execution script (dotnet run or .exe)
-│   ├── build_self_contained.bat    # Builds single-file standalone Windows x64 executable
-│   └── allow_firewall.bat          # Configures Windows Firewall for UDP ports 5000 & 5152
-│
-└── README.md                       # Comprehensive Windows & Forza setup guide
+|-- WindowsBridge.sln               # Visual Studio solution file
+|-- WindowsBridge.csproj            # .NET 8 project file (Nefarius.ViGEm.Client)
+|-- Program.cs                      # Entrypoint, argument parser, service orchestrator
+|
+|-- VirtualController/
+|   `-- VirtualGamepad.cs           # ViGEmBus Xbox 360 controller emulation & axis mapping
+|
+|-- Networking/
+|   |-- UdpServer.cs                # Asynchronous UDP socket listener & packet validator
+|   `-- DeviceDiscovery.cs          # Local network beacon broadcaster on port 5152
+|
+|-- Protocol/
+|   `-- ControllerPacket.cs         # JSON and 24-byte compact binary decoder & validator
+|
+|-- Controller/
+|   `-- ControllerState.cs          # Thread-safe atomic controller state model
+|
+|-- Safety/
+|   `-- ConnectionWatchdog.cs       # 200 ms timeout monitor (snaps inputs to neutral)
+|
+|-- Diagnostics/
+|   `-- Statistics.cs               # Throughput (PPS), latency, packet drop, and jitter tracker
+|
+|-- UI/
+|   `-- Dashboard.cs                # ANSI terminal dashboard with live ASCII gauges
+|
+|-- drivers/
+|   `-- ViGEmBus_1.22.0_...exe      # Official offline installer for ViGEmBus kernel driver
+|
+|-- scripts/
+|   |-- install_vigem_driver.bat    # Automated one-click ViGEmBus driver installation
+|   |-- run.bat                     # Runner script (supports dotnet run or prebuilt binary)
+|   |-- build_self_contained.bat    # Standalone single-file Windows x64 publisher
+|   `-- allow_firewall.bat          # Configures Windows Firewall for UDP ports 5000 & 5152
+|
+|-- .gitignore                      # Git ignore file for build and temporary artifacts
+`-- README.md                       # Technical documentation
 ```
 
 ---
 
-## 📋 Prerequisites on the Windows Laptop
+## Prerequisites and System Requirements
 
-- **Operating System**: Windows 10 or Windows 11 (64-bit).
-- **Network**: Connected to the **same Wi-Fi network** as the Android phone, OR connected to the **Phone Hotspot**.
-- **.NET 8.0 SDK (x64)**:
-  - **Direct Installer**: Download from [Microsoft .NET 8.0 SDK (x64)](https://dotnet.microsoft.com/download/dotnet/8.0)
-  - **Or via Windows Terminal / PowerShell (Winget)**:
-    ```powershell
-    winget install Microsoft.DotNet.SDK.8
-    ```
-  - Verify installation in Command Prompt:
-    ```cmd
-    dotnet --version
-    ```
-    *(Should output `8.0.xxx`)*
+### Hardware
+- Windows PC or Gaming Laptop (Windows 10 or Windows 11, 64-bit).
+- Local Wi-Fi network or mobile device capable of creating a Wi-Fi Hotspot.
+- Smartphone running the Phone Racing Wheel mobile client.
 
----
-
-## 📡 Network Protocol & Packet Format
-
-### Protocol Specifications
-- **Transport**: UDP datagrams over local network.
-- **Default Port**: `5000` (configurable via CLI argument: `WindowsBridge.exe [port] [timeoutMs]`).
-- **Update Rate**: ~60 packets/second.
-- **Payload Format (JSON)**:
-  ```json
-  {
-    "v": 1,
-    "seq": 1042,
-    "t": 1725555678123,
-    "steer": -0.4200,
-    "thrtl": 0.7300,
-    "brake": 0.0000,
-    "hb": false,
-    "gu": false,
-    "gd": false
-  }
+### Software
+- .NET 8.0 SDK or Desktop Runtime:
+  Download: https://dotnet.microsoft.com/download/dotnet/8.0 (select .NET SDK x64 or .NET Desktop Runtime x64).
+  CLI command via winget:
+  ```powershell
+  winget install Microsoft.DotNet.SDK.8
   ```
-- **Field Definitions**:
-  - `v`: Protocol version (`1`).
-  - `seq`: Monotonically increasing sequence number (64-bit integer).
-  - `t`: Client timestamp in milliseconds since epoch.
-  - `steer`: Steering angle `[-1.0, 1.0]` (-1.0 = full left, +1.0 = full right).
-  - `thrtl`: Throttle input `[0.0, 1.0]` (0.0 = off, 1.0 = full gas).
-  - `brake`: Brake input `[0.0, 1.0]` (0.0 = off, 1.0 = full brake).
-  - `hb`: Handbrake (`true` / `false`).
-  - `gu`: Gear Up (`true` / `false`).
-  - `gd`: Gear Down (`true` / `false`).
-- **Alternative Binary Layout**: Supported out-of-the-box via `ControllerPacket.TryParse` (24 bytes).
+- ViGEmBus Driver (Version 1.22.0 or later):
+  Included directly in the repository at `drivers/ViGEmBus_1.22.0_x64_x86_arm64.exe` or installed via `scripts/install_vigem_driver.bat`.
+- Windows Firewall:
+  Inbound UDP ports 5000 (telemetry) and 5152 (network discovery) must be open.
 
 ---
 
-## 🛡️ Packet Validation & Safety Watchdog
+## Network Protocol and Wire Format
 
-1. **Validation & Filtering**:
-   - Rejects packets with invalid protocol versions.
-   - Rejects NaN, infinite, or out-of-range values.
-   - Enforces monotonic sequence numbers (`seq > lastSeq`). Any delayed or duplicate UDP packets are ignored.
-2. **200 ms Safety Watchdog**:
-   - Monitored on a 25 ms timer.
-   - If no valid packet arrives within **200 ms** (configurable):
-     - Snaps all controls immediately to safe neutral:
-       `Steering = 0.0`, `Throttle = 0.0`, `Brake = 0.0`, `Handbrake = false`, `GearUp = false`, `GearDown = false`.
-     - Dashboard displays `PHONE DISCONNECTED (WATCHDOG NEUTRAL ENGAGED)`.
-   - As soon as the phone resumes sending packets, control recovers automatically.
+The Windows Bridge supports dual ingestion formats: JSON datagrams (for readability and debugging) and 24-byte compact binary datagrams (for ultra-low-bandwidth transmission). Both protocols are automatically parsed on UDP port 5000.
+
+### 1. JSON Telemetry Format
+
+```json
+{
+  "v": 1,
+  "seq": 1042,
+  "t": 1725555678123,
+  "steer": -0.4200,
+  "thrtl": 0.7300,
+  "brake": 0.0000,
+  "hb": false,
+  "gu": false,
+  "gd": false
+}
+```
+
+#### JSON Field Specifications
+
+| Key | Type | Valid Range | Description |
+| :--- | :--- | :--- | :--- |
+| `v` | Integer | `1` | Wire protocol version identifier. |
+| `seq` | Long | `0` to `2^63-1` | Monotonically increasing sequence number. |
+| `t` | Long | Positive integer | Client timestamp in milliseconds since Unix epoch. |
+| `steer` | Double | `[-1.0, 1.0]` | Normalized steering input (-1.0 = full left, +1.0 = full right). |
+| `thrtl` | Double | `[0.0, 1.0]` | Normalized throttle input (0.0 = idle, 1.0 = wide open throttle). |
+| `brake` | Double | `[0.0, 1.0]` | Normalized brake input (0.0 = released, 1.0 = maximum braking). |
+| `hb` | Boolean | `true` / `false` | Handbrake state (mapped to Xbox Button A). |
+| `gu` | Boolean | `true` / `false` | Gear Up shift paddle (mapped to Xbox Right Bumper). |
+| `gd` | Boolean | `true` / `false` | Gear Down shift paddle (mapped to Xbox Left Bumper). |
+
+### 2. Compact Binary Telemetry Format (24 Bytes)
+
+For environments with packet loss or low bandwidth, the application supports a zero-allocation 24-byte binary structure:
+
+```
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|    Version    |        Sequence Number (Bytes 0-3)            |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                  Sequence Number (Bytes 4-7)                  |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                    Timestamp (Bytes 0-3)                      |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                    Timestamp (Bytes 4-7)                      |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|        Steering (Int16)       |        Throttle (UInt16)      |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|         Brake (UInt16)        |    Buttons    |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+```
+
+#### Memory Layout Breakdown
+
+| Offset (Bytes) | Size (Bytes) | Data Type | Encoding | Field Description |
+| :--- | :--- | :--- | :--- | :--- |
+| `0` | 1 | `uint8` | Unsigned byte | Protocol version (`1`). |
+| `1 - 8` | 8 | `int64` | Big-Endian | Monotonic sequence number. |
+| `9 - 16` | 8 | `int64` | Big-Endian | Unix epoch timestamp in milliseconds. |
+| `17 - 18` | 2 | `int16` | Big-Endian | Normalized steering: `[-32767, 32767]`. |
+| `19 - 20` | 2 | `uint16` | Big-Endian | Normalized throttle: `[0, 65535]`. |
+| `21 - 22` | 2 | `uint16` | Big-Endian | Normalized brake: `[0, 65535]`. |
+| `23` | 1 | `uint8` | Bitmask | Buttons: Bit 0 = Handbrake, Bit 1 = Gear Up, Bit 2 = Gear Down. |
 
 ---
 
-## 🚀 Exact Windows Setup & Build Workflow
+## Fail-Safe Safety Watchdog
 
-Follow these 5 simple steps on your Windows laptop:
+To prevent runaway acceleration or steering lock if Wi-Fi disconnects during a race, the application implements a dedicated real-time watchdog:
 
-### Step 1: Install .NET 8.0 SDK on Windows
-Download and run the installer from:
-👉 **https://dotnet.microsoft.com/download/dotnet/8.0** *(select ".NET SDK x64")*
-Or run in PowerShell / Command Prompt:
+1. **Monotonic Sequence Enforcement**:
+   - Out-of-order, delayed, or duplicated UDP datagrams (`packet.SequenceNumber <= lastProcessedSequence`) are silently dropped.
+2. **200 ms Timeout Interval**:
+   - Monitored continuously on an asynchronous 25 ms evaluation loop.
+   - If no valid packet arrives within the configured threshold (default: 200 ms), the bridge engages an automatic neutral state:
+     - `Steering = 0.0`
+     - `Throttle = 0.0`
+     - `Brake = 0.0`
+     - `Handbrake = false`
+     - `GearUp = false`
+     - `GearDown = false`
+   - The virtual Xbox 360 controller instantly updates to neutral, halting the vehicle safely in-game.
+   - The console HUD flags: `PHONE DISCONNECTED (WATCHDOG NEUTRAL ENGAGED)`.
+3. **Instant Auto-Recovery**:
+   - The moment the mobile device sends a fresh valid packet, normal control resumes immediately with zero manual intervention required.
+
+---
+
+## Installation and Execution Guide
+
+### Step 1: Install the ViGEmBus Kernel Driver
+The ViGEmBus driver creates the virtual Xbox 360 controller at the Windows kernel level.
+1. Navigate to the `scripts/` directory.
+2. Right-click `install_vigem_driver.bat` and select "Run as administrator".
+3. Follow the installation wizard.
+Alternatively, execute the standalone installer from `drivers/ViGEmBus_1.22.0_x64_x86_arm64.exe`.
+
+### Step 2: Configure Windows Firewall
+To permit inbound UDP datagrams on port 5000 (telemetry) and 5152 (discovery):
+1. Right-click `scripts/allow_firewall.bat` and select "Run as administrator".
+Alternatively, run this PowerShell command in an elevated terminal:
 ```powershell
-winget install Microsoft.DotNet.SDK.8
-```
-*(After installing, open a new Command Prompt window and confirm `dotnet --version` outputs `8.0.x`)*
-
-### Step 2: Copy the `WindowsBridge` Folder to Windows
-Copy the entire `WindowsBridge\` folder from your Mac to your Windows laptop (e.g. `C:\Games\PhoneRacingWheel\WindowsBridge` or your Desktop).
-
-### Step 3: Configure Windows Firewall (One-Time)
-Right-click `scripts\allow_firewall.bat` and select **"Run as administrator"**.
-
-*Or run this in PowerShell as Administrator:*
-```powershell
-New-NetFirewallRule -DisplayName "Phone Racing Wheel UDP Bridge" -Direction Inbound -Protocol UDP -LocalPort 5000,5152 -Profile Private -Action Allow
+New-NetFirewallRule -DisplayName "Phone Racing Wheel UDP Bridge" -Direction Inbound -Protocol UDP -LocalPort 5000,5152 -Profile Any -Action Allow
 ```
 
-### Step 4: Build Self-Contained Standalone Executable
-Double-click:
-`scripts\build_self_contained.bat`
+### Step 3: Run the Application
 
-This will execute:
+#### Option A: Running from Source (.NET 8 SDK)
 ```cmd
-dotnet publish -c Release -r win-x64 --self-contained true /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true -o .\publish
+cd WindowsBridge
+dotnet run -c Release
 ```
-When finished, it produces:
-📁 `WindowsBridge\publish\WindowsBridge.exe`
 
-### Step 5: Run the Windows Bridge
-You can now run either:
-- Direct executable: Double-click `publish\WindowsBridge.exe`
-- Or runner script: Double-click `scripts\run.bat`
-- Or from Command Prompt:
-  ```cmd
-  .\publish\WindowsBridge.exe 5000 200
-  ```
+#### Option B: Using the Runner Script
+Double-click `scripts/run.bat`. This automatically detects whether a precompiled binary or .NET SDK is available and starts the service.
 
----
-
-## 📶 Test Procedures
-
-### TEST A: Normal Wi-Fi Router
-1. Ensure both your Android phone and Windows laptop are connected to the same home/office Wi-Fi router.
-2. Start the Windows Bridge on your laptop (`scripts\run.bat`).
-3. Launch the **Phone Racing Wheel** app on your phone.
-4. Tap the **NET** status badge in the top bar.
-5. Your Windows laptop will appear under **"DISCOVERED WINDOWS LAPTOPS"**. Tap **"CONNECT"**.
-6. (If broadcast discovery is blocked by your router, check your laptop's IP via `ipconfig` e.g. `192.168.1.50`, type it into the IP field and tap **CONNECT**).
-7. Tilt your phone left/right and forward/backward: verify that **Steering**, **Throttle**, **Brake**, and **Buttons** update live at **~60 packets/sec** on the Windows console dashboard.
-
-### TEST B: Phone Hotspot Setup (No Router Needed!)
-1. On your Android phone, turn **Personal Hotspot (Wi-Fi Hotspot)** ON.
-2. On your Windows laptop, connect to your phone's Wi-Fi Hotspot network.
-3. Open Command Prompt on Windows and type `ipconfig`. Look at your Wi-Fi adapter IPv4 address (it will usually be `192.168.43.x` or similar).
-4. Run the Windows Bridge: `scripts\run.bat`.
-5. Launch the **Phone Racing Wheel** app on the phone.
-6. Tap **NET**, enter the laptop's IP address (from step 3), port `5000`, and tap **CONNECT**.
-7. Observe live telemetry updating smoothly at ~60 pps directly between the phone and laptop with zero internet or router required!
+#### Option C: Building a Standalone Single-File Executable
+To create a self-contained executable that runs on any 64-bit Windows PC without requiring .NET SDK:
+1. Double-click `scripts/build_self_contained.bat`.
+2. The compiled binary will be placed at:
+   `WindowsBridge/publish/WindowsBridge.exe`
+3. You can transfer this single `.exe` file to any Windows 10/11 computer and run it directly.
 
 ---
 
-## 🏎️ Forza Horizon Setup & Gameplay
+## Verification via Windows Game Controllers (`joy.cpl`)
 
-Once your phone is streaming to the Windows Bridge at ~60 pps, follow these steps to use it as your physical racing wheel in **Forza Horizon (Standard Edition)**:
+Before starting your racing simulator, verify that the virtual controller is recognized by the operating system:
 
-### Step 1: Install the ViGEmBus Driver (One-Time)
-1. Open the `scripts\` folder on your Windows laptop.
-2. Right-click **`install_vigem_driver.bat`** and select **"Run as administrator"**.
-3. Follow the quick setup wizard prompts to install the official virtual gamepad driver.
-4. When `WindowsBridge.exe` starts, verify the dashboard displays:
-   `Virtual Gamepad: XBOX 360 (ACTIVE)`
-
-### Step 2: Test the Virtual Gamepad in Windows (`joy.cpl`)
-1. On your Windows laptop, press `Win + R`.
-2. Type `joy.cpl` and press Enter (opens **Game Controllers**).
-3. You will see: **`Controller (XBOX 360 For Windows)`** listed with status `OK`!
-4. Click **Properties**:
-   - Tilt your phone left/right $\rightarrow$ the X-axis indicator moves left/right.
-   - Tilt your phone forward $\rightarrow$ the Z-axis (Right Trigger / Throttle) pulls.
-   - Press Brake on the phone $\rightarrow$ the Left Trigger pulls.
-   - Tap Handbrake $\rightarrow$ Button 1 (A) lights up.
-   - Tap Gear Up $\rightarrow$ Button 6 (RB) lights up.
-   - Tap Gear Down $\rightarrow$ Button 5 (LB) lights up.
-
-### Step 3: Launch Forza Horizon
-1. Launch **Forza Horizon**.
-2. Forza will automatically detect the **Xbox 360 Controller** natively!
-3. Head into **Free Roam** or any race:
-   - **Steer**: Turn your phone like a real steering wheel.
-   - **Accelerate**: Tilt forward smoothly for precision throttle control.
-   - **Brake**: Touch the on-screen Brake button for progressive stopping power.
-   - **Handbrake**: Tap Handbrake into tight hairpins for smooth drifts.
-   - **Shifting**: Tap Gear Up / Down for manual transmission.
+1. Press `Win + R`, type `joy.cpl`, and press Enter.
+2. The "Game Controllers" dialog opens.
+3. Confirm that **"Controller (XBOX 360 For Windows)"** appears with status **"OK"**.
+4. Select the controller and click **"Properties"**:
+   - Tilt your mobile phone left and right: The crosshair in the "X Axis / Y Axis" box moves smoothly along the horizontal X axis.
+   - Apply throttle on the phone: The "Z Axis" slider responds proportionally.
+   - Apply brake on the phone: The "Z Rotation" slider responds proportionally.
+   - Tap Handbrake on the phone: Button 1 (A) illuminates.
+   - Tap Gear Up on the phone: Button 6 (RB) illuminates.
+   - Tap Gear Down on the phone: Button 5 (LB) illuminates.
 
 ---
 
-## 📦 Building a Self-Contained Standalone Executable
+## In-Game Setup and Configuration
 
-To compile a single `.exe` file that can be transferred and executed on any Windows 10/11 x64 PC without installing the .NET SDK:
+### Forza Horizon 4 / 5 & Forza Motorsport
+1. Launch Forza Horizon.
+2. Navigate to **Settings -> Controls -> Controller**.
+3. The game automatically binds the virtual Xbox 360 controller.
+4. Recommended in-game tuning under **Advanced Controls**:
+   - **Steering Axis Deadzone Inside**: `0` (the mobile app handles deadzone math).
+   - **Steering Axis Deadzone Outside**: `100`.
+   - **Steering Linearity**: `50` (linear; exponential curve tuning is handled on the mobile device).
+   - **Acceleration Axis Deadzone Inside**: `0`.
+   - **Acceleration Axis Deadzone Outside**: `100`.
+   - **Deceleration Axis Deadzone Inside**: `0`.
+   - **Deceleration Axis Deadzone Outside**: `100`.
 
-Run on any computer with .NET 8 SDK:
+### Assetto Corsa, F1 23/24, Project CARS
+- Select **Wheel / Gamepad -> Xbox 360 Controller**.
+- Verify axis assignments: Steer = Left Thumb X, Throttle = RT, Brake = LT, Shift Up = RB, Shift Down = LB.
+
+---
+
+## Network Configuration and Latency Optimization
+
+### Network Topology Comparison
+
+| Mode | Setup Requirement | Expected Latency | Recommended Scenario |
+| :--- | :--- | :--- | :--- |
+| **Direct Phone Hotspot** | Turn on phone hotspot, connect Windows laptop to phone Wi-Fi | 1 ms to 4 ms | Maximum performance, zero router jitter, portable/LAN play |
+| **5 GHz Local Wi-Fi Router** | Connect both devices to 5 GHz Wi-Fi SSID | 3 ms to 8 ms | Standard home setup with modern router |
+| **2.4 GHz Local Wi-Fi Router** | Connect both devices to 2.4 GHz Wi-Fi | 10 ms to 35 ms | Functional, but prone to packet jitter and interference |
+
+### Best Practices for Lowest Latency
+1. **Use Phone Hotspot Mode**:
+   - Turning on your phone's personal Wi-Fi hotspot and connecting the Windows PC directly bypasses router hops and airtime contention entirely, yielding sub-3ms telemetry.
+2. **Set Windows Network Profile to Private**:
+   - Windows often marks hotspot networks as "Public", which restricts inbound UDP packets. In Windows Settings, set the hotspot Wi-Fi network profile to "Private".
+3. **5 GHz Over 2.4 GHz**:
+   - If using a router, ensure both phone and laptop are on 5 GHz to avoid Bluetooth and microwave interference typical on 2.4 GHz.
+
+---
+
+## Command Line Arguments
+
+`WindowsBridge.exe` accepts optional positional parameters for custom networking setups:
+
 ```cmd
-dotnet publish -c Release -r win-x64 --self-contained true /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true -o .\publish
+WindowsBridge.exe [port] [watchdogTimeoutMs]
 ```
 
-The output executable will be created at:
-`publish\WindowsBridge.exe`
+- `port`: Inbound UDP telemetry port (Default: `5000`).
+- `watchdogTimeoutMs`: Watchdog fail-safe timeout in milliseconds (Default: `200`).
 
-Copy the `publish\` folder directly to your Windows laptop and double-click `WindowsBridge.exe`.
+Example:
+```cmd
+WindowsBridge.exe 5050 150
+```
 
 ---
 
-## 🔍 Troubleshooting
+## Troubleshooting Guide
 
-| Issue | Cause | Solution |
+| Issue | Root Cause | Resolution |
 | :--- | :--- | :--- |
-| **Status remains WAITING FOR PHONE** | Windows Firewall is blocking inbound UDP | Run `scripts\allow_firewall.bat` as Administrator. Ensure the network profile is set to "Private" in Windows Settings. |
-| **Auto-discovery doesn't find PC** | Router/Hotspot blocks UDP broadcasts (client isolation) | Find your Windows laptop IP via `ipconfig` (e.g. `192.168.43.100` or `192.168.1.50`) and enter it manually into the phone app's NET dialog. |
-| **Packet rate is lower than 60 pps** | High 2.4GHz Wi-Fi interference | Switch your Wi-Fi router / phone hotspot to 5GHz band. |
-| **Port 5000 in use** | Another service is using port 5000 | Launch on a custom port: `dotnet run -c Release -- 5050 200`, and set port `5050` in the phone app. |
+| **Console displays: "WAITING FOR PHONE"** | Windows Firewall is dropping inbound UDP datagrams | Run `scripts/allow_firewall.bat` as Administrator. Check that your network connection profile is set to Private. |
+| **Auto-discovery does not list laptop in phone app** | UDP broadcast packets (port 5152) are blocked by router | Type `ipconfig` in Command Prompt on Windows. Note your IPv4 address (e.g. `192.168.1.45`), open the NET dialog in the mobile app, enter the IP manually, and tap Connect. |
+| **"ViGEmBus driver not found" warning on launch** | The ViGEmBus kernel driver is not installed | Run `scripts/install_vigem_driver.bat` as Administrator, or install `drivers/ViGEmBus_1.22.0_x64_x86_arm64.exe`. Restart the bridge application. |
+| **Controls not responding in Forza Horizon** | Another controller or steering wheel has active focus in-game | Disconnect physical steering wheels or secondary gamepads, or switch controller profile to Gamepad 1 in Forza settings. |
+| **High latency or stuttering gauges** | 2.4 GHz Wi-Fi interference or background network load | Switch to a 5 GHz network or use the phone hotspot connection mode. |
+| **Port 5000 already in use** | Another local process bound UDP port 5000 | Launch the bridge with an alternative port: `WindowsBridge.exe 5050 200`, and set port 5050 in the phone application. |
